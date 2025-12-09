@@ -2,6 +2,9 @@
 
 out vec4 FragColor;
 
+// Couleur passée par le CPU
+uniform vec4 colorOverride;
+
 void main() {
-    FragColor = vec4(0.3, 0.7, 1.0, 1.0);
+    FragColor = colorOverride;
 }

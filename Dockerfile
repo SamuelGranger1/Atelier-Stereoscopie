@@ -1,9 +1,9 @@
 FROM ubuntu:22.04
 
 # Installer les dépendances nécessaires
-RUN apt update && apt install -y \
+RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y \
+    build-essential \        
     cmake \
-    g++ \
     git \
     libglfw3-dev \
     libglm-dev \
@@ -14,7 +14,8 @@ RUN apt update && apt install -y \
     libxinerama-dev \
     libxcursor-dev \
     libgl1-mesa-dev \
-    libglu1-mesa-dev
+    libglu1-mesa-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Dossier de travail
 WORKDIR /app
@@ -27,4 +28,3 @@ RUN cmake -S . -B build && cmake --build build
 
 # On ne lance PAS le programme ici (pas de GUI dans le conteneur)
 CMD ["bash", "-c", "echo 'Build OK (exécutable dans ./build/vr)'"]
-

@@ -76,8 +76,8 @@ GLuint createProgram(const std::string& vertPath, const std::string& fragPath) {
 // --- Etat de la "tête" VR (caméra) ---
 struct CameraState {
     glm::vec3 position = glm::vec3(0.0f, 1.6f, 5.0f); // hauteur humaine + recul
-    float yaw   = 0.0f; // rotation gauche/droite
-    float pitch = 0.0f; // regarder haut/bas
+    float yaw   = 0.0f;  // rotation gauche/droite
+    float pitch = 0.0f;  // regarder haut/bas
 };
 
 void updateCamera(GLFWwindow* window, CameraState& cam, float dt) {
@@ -123,6 +123,45 @@ void updateCamera(GLFWwindow* window, CameraState& cam, float dt) {
     if (cam.pitch < -maxPitch) cam.pitch = -maxPitch;
 }
 
+// --- Fonction utilitaire : dessiner la scène (sol + plusieurs cubes) ---
+void drawScene(GLuint vao,
+               GLint locModel,
+               GLint locColor,
+               float timeSeconds)
+{
+    glBindVertexArray(vao);
+
+    // 1) Cube central qui tourne (bleu)
+    glm::mat4 modelCenter = glm::mat4(1.0f);
+    modelCenter = glm::translate(modelCenter, glm::vec3(0.0f, 1.2f, 0.0f));
+    modelCenter = glm::rotate(modelCenter, timeSeconds * 0.8f, glm::vec3(0.0f, 1.0f, 0.0f));
+    glUniformMatrix4fv(locModel, 1, GL_FALSE, &modelCenter[0][0]);
+    glUniform4f(locColor, 0.15f, 0.55f, 1.0f, 1.0f); // bleu
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+
+    // 2) Cube proche à gauche (orange/rouge)
+    glm::mat4 modelNear = glm::mat4(1.0f);
+    modelNear = glm::translate(modelNear, glm::vec3(-1.5f, 0.8f, -1.0f));
+    glUniformMatrix4fv(locModel, 1, GL_FALSE, &modelNear[0][0]);
+    glUniform4f(locColor, 1.0f, 0.45f, 0.1f, 1.0f); // orange
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+
+    // 3) Cube loin à droite (vert)
+    glm::mat4 modelFar = glm::mat4(1.0f);
+    modelFar = glm::translate(modelFar, glm::vec3(2.5f, 0.8f, -8.0f));
+    glUniformMatrix4fv(locModel, 1, GL_FALSE, &modelFar[0][0]);
+    glUniform4f(locColor, 0.2f, 0.9f, 0.3f, 1.0f); // vert
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+
+    // 4) Sol gris très large
+    glm::mat4 modelFloor = glm::mat4(1.0f);
+    modelFloor = glm::translate(modelFloor, glm::vec3(0.0f, -0.2f, -5.0f));
+    modelFloor = glm::scale(modelFloor, glm::vec3(30.0f, 0.05f, 30.0f));
+    glUniformMatrix4fv(locModel, 1, GL_FALSE, &modelFloor[0][0]);
+    glUniform4f(locColor, 0.85f, 0.85f, 0.85f, 1.0f); // gris clair
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+}
+
 int main() {
     // --- Initialisation GLFW ---
     if (!glfwInit()) {
@@ -136,7 +175,7 @@ int main() {
     const int WIDTH  = 1600;
     const int HEIGHT = 900;
 
-    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Mini VR Engine - Vue Stereo", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Mini VR Engine - Stereo Demo", nullptr, nullptr);
     if (!window) {
         std::cerr << "Erreur: Impossible de créer la fenêtre GLFW\n";
         glfwTerminate();
@@ -163,7 +202,7 @@ int main() {
         return -1;
     }
 
-    // --- Données cube ---
+    // --- Données cube (cube unité) ---
     float cubeVertices[] = {
         // Face avant
         -1.f, -1.f,  1.f,   1.f, -1.f,  1.f,   1.f,  1.f,  1.f,
@@ -200,23 +239,37 @@ int main() {
     GLint locModel = glGetUniformLocation(program, "model");
     GLint locView  = glGetUniformLocation(program, "view");
     GLint locProj  = glGetUniformLocation(program, "proj");
+    GLint locColor = glGetUniformLocation(program, "colorOverride");
 
-    // Matrice de projection (pour chaque oeil, on ajustera l'aspect)
-    float ipd = 0.064f; // distance interpupillaire en mètres
+    // IPD EXAGÉRÉE pour que la différence soit évidente sur écran
+    float ipd = 0.30f; // 30 cm pour la démo (dans la vraie vie ~0.064f)
 
     CameraState cam;
+    bool stereoEnabled = true;
     double lastTime = glfwGetTime();
 
-    // --- Boucle principale ---
     while (!glfwWindowShouldClose(window)) {
         double currentTime = glfwGetTime();
         float dt = static_cast<float>(currentTime - lastTime);
         lastTime = currentTime;
 
         glfwPollEvents();
+
+        // Toggle mono/stéréo avec la touche M
+        static bool mWasPressed = false;
+        if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) {
+            if (!mWasPressed) {
+                stereoEnabled = !stereoEnabled;
+                std::cout << (stereoEnabled ? "Mode = STEREO" : "Mode = MONO") << "\n";
+            }
+            mWasPressed = true;
+        } else {
+            mWasPressed = false;
+        }
+
         updateCamera(window, cam, dt);
 
-        // Vision "forward" et vecteur right recalculés
+        // Recalcul de la direction de la caméra
         glm::vec3 forward;
         forward.x = cosf(cam.pitch) * sinf(cam.yaw);
         forward.y = sinf(cam.pitch);
@@ -231,50 +284,50 @@ int main() {
         glm::mat4 projLeft  = glm::perspective(glm::radians(90.0f), halfWidth / (float)HEIGHT, 0.1f, 100.0f);
         glm::mat4 projRight = projLeft;
 
-        // Décalage des yeux (gauche/droite)
         glm::vec3 eyeCenter = cam.position;
-        glm::vec3 eyeLeft   = eyeCenter - right * (ipd * 0.5f);
-        glm::vec3 eyeRight  = eyeCenter + right * (ipd * 0.5f);
+        glm::vec3 eyeLeft;
+        glm::vec3 eyeRight;
+        glm::mat4 viewLeft;
+        glm::mat4 viewRight;
 
-        glm::mat4 viewLeft  = glm::lookAt(eyeLeft,  eyeLeft  + forward, up);
-        glm::mat4 viewRight = glm::lookAt(eyeRight, eyeRight + forward, up);
+        if (stereoEnabled) {
+            // --- MODE STEREO : deux caméras légèrement décalées ---
+            eyeLeft  = eyeCenter - right * (ipd * 0.5f);
+            eyeRight = eyeCenter + right * (ipd * 0.5f);
 
-        // Modèle (cube qui tourne devant nous)
-        static float angle = 0.0f;
-        angle += dt * 0.8f;
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 1.2f, 0.0f));
-        model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-
-        glEnable(GL_SCISSOR_TEST); // pour bien nettoyer chaque oeil
+            viewLeft  = glm::lookAt(eyeLeft,  eyeLeft  + forward, up);
+            viewRight = glm::lookAt(eyeRight, eyeRight + forward, up);
+        } else {
+            // --- MODE MONO : même point de vue dans les deux moitiés ---
+            glm::mat4 viewMono = glm::lookAt(eyeCenter, eyeCenter + forward, up);
+            viewLeft  = viewMono;
+            viewRight = viewMono;
+        }
 
         glUseProgram(program);
-        glBindVertexArray(vao);
+        glEnable(GL_SCISSOR_TEST);
 
         // --- Oeil gauche : vue à gauche de l'écran ---
         glViewport(0, 0, (int)halfWidth, HEIGHT);
         glScissor(0, 0, (int)halfWidth, HEIGHT);
-        glClearColor(0.05f, 0.05f, 0.15f, 1.0f);
+        glClearColor(0.03f, 0.03f, 0.12f, 1.0f);  // bleu nuit
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUniformMatrix4fv(locModel, 1, GL_FALSE, &model[0][0]);
         glUniformMatrix4fv(locView,  1, GL_FALSE, &viewLeft[0][0]);
         glUniformMatrix4fv(locProj,  1, GL_FALSE, &projLeft[0][0]);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        drawScene(vao, locModel, locColor, static_cast<float>(currentTime));
 
         // --- Oeil droit : vue à droite de l'écran ---
         glViewport((int)halfWidth, 0, (int)halfWidth, HEIGHT);
         glScissor((int)halfWidth, 0, (int)halfWidth, HEIGHT);
-        glClearColor(0.05f, 0.1f, 0.05f, 1.0f);
+        glClearColor(0.02f, 0.09f, 0.04f, 1.0f); // vert très foncé
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUniformMatrix4fv(locView,  1, GL_FALSE, &viewRight[0][0]);
         glUniformMatrix4fv(locProj,  1, GL_FALSE, &projRight[0][0]);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        drawScene(vao, locModel, locColor, static_cast<float>(currentTime));
 
-        glBindVertexArray(0);
         glDisable(GL_SCISSOR_TEST);
-
         glfwSwapBuffers(window);
     }
 
